@@ -69,6 +69,23 @@ missed and how cheaply a miss is handled:
   tier swaps in what the workload actually routes. Related art: [Fiddler (DAC 2025)](https://63dac.conference-program.com),
   KTransformers, HOBBIT.
 
+**Follow-up - thread affinity.** After publishing, the comment section asked about CPU pinning, so it got
+measured too (same PC, same 257K warm benchmark, `--pool-workers 13` everywhere):
+
+| Worker pool affinity | Output tok/s |
+| --- | ---: |
+| OS default (no pinning) | 53.5 fresh, but **29** after affinity experiments (the scheduler keeps threads parked on E-cores) |
+| pinned to the 16 P-core threads (mask 0xFFFF) | **60-67** |
+| pinned to the 8 physical P-cores (13 workers on 8 cores) | 14 - oversubscribed |
+| pinned to the 12 E-cores | 28 - the IQ expert kernels just run slower there |
+| 16 workers, P-pinned | 49-52 - oversubscribed again, 13 stays the sweet spot |
+
+Pinning is applied to the engine process at spawn (psutil, `STRATA_CPU_AFFINITY` mask in the config's env
+section). Two findings worth carrying over: on a 14700KF the 16 SMT threads of the P-cores beat any E-core
+mix, and an unpinned pool is not just slower but *unstable* - Windows' ideal-processor memory can strand
+worker threads on E-cores after the affinity mask changes under it. On an Arrow Lake part (no SMT, more
+E-cores) the math may genuinely favor E-cores, as one commenter measured on a 270K; test on your own chip.
+
 ## Reproducing
 
 ```
